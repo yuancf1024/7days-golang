@@ -86,7 +86,7 @@ func (g *Group) RegisterPeers(peers PeerPicker) {
 // load 调用 getLocally（分布式场景下会调用 getFromPeer 从其他节点获取）
 func (g *Group) load(key string) (value ByteView, err error) {
 	if g.peers != nil {
-		if peer, ok := g.peers.PickerPeer(key); ok { // 修改 load 方法，使用 PickPeer() 方法选择节点
+		if peer, ok := g.peers.PickPeer(key); ok { // 修改 load 方法，使用 PickPeer() 方法选择节点
 			if value, err = g.getFromPeer(peer, key); err == nil { // 若非本机节点，则调用 getFromPeer() 从远程获取
 				return value, nil
 			}
@@ -97,14 +97,8 @@ func (g *Group) load(key string) (value ByteView, err error) {
 	return g.getLocally(key) // 若是本机节点或失败，则回退到 getLocally()。
 }
 
-// 新增 getFromPeer() 方法，使用实现了 PeerGetter 接口的 httpGetter 
-// 从访问远程节点，获取缓存值
-func (g *Group) getFromPeer(peer PeerGetter, key string) (ByteView, error) {
-	bytes, err := peer.Get(g.name, key)
-	if err != nil {
-		return ByteView{}, err
-	}
-	return ByteView{b: bytes}, nil
+func (g *Group) populateCache(key string, value ByteView) {
+	g.mainCache.add(key, value)
 }
 
 // getLocally 调用用户回调函数 g.getter.Get() 获取源数据，
@@ -119,6 +113,12 @@ func (g *Group) getLocally(key string) (ByteView, error) {
 	return value, nil
 }
 
-func (g *Group) populateCache(key string, value ByteView) {
-	g.mainCache.add(key, value)
+// 新增 getFromPeer() 方法，使用实现了 PeerGetter 接口的 httpGetter 
+// 从访问远程节点，获取缓存值
+func (g *Group) getFromPeer(peer PeerGetter, key string) (ByteView, error) {
+	bytes, err := peer.Get(g.name, key)
+	if err != nil {
+		return ByteView{}, err
+	}
+	return ByteView{b: bytes}, nil
 }

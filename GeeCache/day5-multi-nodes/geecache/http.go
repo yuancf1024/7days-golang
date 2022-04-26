@@ -2,11 +2,13 @@ package geecache
 
 import (
 	"fmt"
+	"geecache/consistenthash"
 	"io/ioutil"
 	"log"
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 )
 
 const (
@@ -14,22 +16,22 @@ const (
 	defaultReplicas = 50
 )
 
-// HTTPPool为一个HTTP对等体池实现了PeerPicker。  
+// HTTPPool为一个HTTP对等体池实现了PeerPicker。
 type HTTPPool struct {
 	// peer的基本URL，例如: “https://example.net:8000”
-	self string // 用来记录自己的地址, 包括主机名/IP 和端口
-	basePath string // 作为节点间通讯地址的前缀，默认是 /_geecache/
-	mu sync.Mutex // guards peers and httpGetters
-	peers *consistenthash.Map // 新增成员变量 peers，类型是一致性哈希算法的 Map，用来根据具体的 key 选择节点
+	self        string                 // 用来记录自己的地址, 包括主机名/IP 和端口
+	basePath    string                 // 作为节点间通讯地址的前缀，默认是 /_geecache/
+	mu          sync.Mutex             // guards peers and httpGetters
+	peers       *consistenthash.Map    // 新增成员变量 peers，类型是一致性哈希算法的 Map，用来根据具体的 key 选择节点
 	httpGetters map[string]*httpGetter // keyed by e.g. "http://10.0.0.2:8008"
 	// 新增成员变量 httpGetters，映射远程节点与对应的 httpGetter
 	// 每一个远程节点对应一个 httpGetter，因为 httpGetter 与远程节点的地址 baseURL 有关。
 }
 
-// NewHTTPPool初始化对等体的HTTP池。  
+// NewHTTPPool初始化对等体的HTTP池。
 func NewHTTPPool(self string) *HTTPPool {
 	return &HTTPPool{
-		self: self,
+		self:     self,
 		basePath: defaultBasePath,
 	}
 }
@@ -60,7 +62,7 @@ func (p *HTTPPool) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	group := GetGroup(groupname) // 通过 groupname 得到 group 实例
 	if group == nil {
-		http.Error(w, "no such group: " + groupname, http.StatusNotFound)
+		http.Error(w, "no such group: "+groupname, http.StatusNotFound)
 		return
 	}
 
@@ -88,7 +90,7 @@ func (p *HTTPPool) Set(peers ...string) {
 }
 
 // PickPeer picks a peer according to key
-// PickerPeer() 包装了一致性哈希算法的 Get() 方法，根据具体的 key，
+// PickPeer() 包装了一致性哈希算法的 Get() 方法，根据具体的 key，
 // 选择节点，返回节点对应的 HTTP 客户端。
 func (p *HTTPPool) PickPeer(key string) (PeerGetter, bool) {
 	p.mu.Lock()
@@ -100,7 +102,7 @@ func (p *HTTPPool) PickPeer(key string) (PeerGetter, bool) {
 	return nil, false
 }
 
-var _ PeerPicker = (*HTTPPool)(nil)
+var _ PeerPicker = (*HTTPPool)(nil) // 确保这个类型实现了这个接口 如果没有实现会报错的
 
 // 首先创建具体的 HTTP 客户端类 httpGetter，实现 PeerGetter 接口。
 type httpGetter struct {
@@ -133,4 +135,3 @@ func (h *httpGetter) Get(group string, key string) ([]byte, error) {
 }
 
 var _ PeerGetter = (*httpGetter)(nil)
-

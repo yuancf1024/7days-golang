@@ -2,7 +2,7 @@ package geecache
 
 // PeerPicker 的 PickPeer() 方法用于根据传入的 key 选择相应节点 PeerGetter
 type PeerPicker interface {
-	pickerPeer(key string) (peer PeerPicker, ok bool)
+	PickPeer(key string) (peer PeerGetter, ok bool)
 }
 
 // PeerGetter是必须由peer实现的接口。
