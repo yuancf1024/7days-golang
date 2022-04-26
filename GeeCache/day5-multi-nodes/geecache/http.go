@@ -9,13 +9,21 @@ import (
 	"strings"
 )
 
-const defaultBasePath = "/_geecache/"
+const (
+	defaultBasePath = "/_geecache/"
+	defaultReplicas = 50
+)
 
 // HTTPPool为一个HTTP对等体池实现了PeerPicker。  
 type HTTPPool struct {
-	// 对等体的基本URL，例如: “https://example.net:8000”
+	// peer的基本URL，例如: “https://example.net:8000”
 	self string // 用来记录自己的地址, 包括主机名/IP 和端口
 	basePath string // 作为节点间通讯地址的前缀，默认是 /_geecache/
+	mu sync.Mutex // guards peers and httpGetters
+	peers *consistenthash.Map // 新增成员变量 peers，类型是一致性哈希算法的 Map，用来根据具体的 key 选择节点
+	httpGetters map[string]*httpGetter // keyed by e.g. "http://10.0.0.2:8008"
+	// 新增成员变量 httpGetters，映射远程节点与对应的 httpGetter
+	// 每一个远程节点对应一个 httpGetter，因为 httpGetter 与远程节点的地址 baseURL 有关。
 }
 
 // NewHTTPPool初始化对等体的HTTP池。  
@@ -64,6 +72,32 @@ func (p *HTTPPool) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/octet-stream")
 	w.Write(view.ByteSlice()) // 使用 w.Write() 将缓存值作为 httpResponse 的 body 返回
+}
+
+// Set updates the pool's list of peers
+// Set() 方法实例化了一致性哈希算法，并且添加了传入的节点
+func (p *HTTPPool) Set(peers ...string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.peers = consistenthash.New(defaultReplicas, nil)
+	p.peers.Add(peers...)
+	p.httpGetters = make(map[string]*httpGetter, len(peers))
+	for _, peer := range peers { // 并为每一个节点创建了一个 HTTP 客户端 httpGetter
+		p.httpGetters[peer] = &httpGetter{baseURL: peer + p.basePath}
+	}
+}
+
+// PickPeer picks a peer according to key
+// PickerPeer() 包装了一致性哈希算法的 Get() 方法，根据具体的 key，
+// 选择节点，返回节点对应的 HTTP 客户端。
+func (p *HTTPPool) PickPeer(key string) (PeerGetter, bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if peer := p.peers.Get(key); peer != "" && peer != p.self {
+		p.Log("pick peer %s", peer)
+		return p.httpGetters[peer], true
+	}
+	return nil, false
 }
 
 var _ PeerPicker = (*HTTPPool)(nil)
