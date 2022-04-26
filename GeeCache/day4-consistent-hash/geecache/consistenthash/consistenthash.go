@@ -66,3 +66,15 @@ func (m *Map) Get(key string) string {
 	// 如果 idx == len(m.keys)，说明应选择 m.keys[0]，
 	// 因为 m.keys 是一个环状结构，所以用取余数的方式来处理这种情况。
 } 
+
+// 删除只需要删除掉节点对应的虚拟节点和映射关系，
+// 至于均摊给其他节点，那是删除之后自然会发生的
+// Remove use to remove a key and its virtual keys on the ring and map
+func (m *Map) Remove(key string) {
+	for i := 0; i < m.replicas; i++ {
+		hash := int(m.hash([]byte(strconv.Itoa(i) + key)))
+		idx := sort.SearchInts(m.keys, hash)
+		m.keys = append(m.keys[:idx], m.keys[idx+1:]...)
+		delete(m.hashMap, hash)
+	}
+}
